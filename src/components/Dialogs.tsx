@@ -2,6 +2,8 @@ import React, { useRef, useState } from "react";
 import { ArrowRight, Check, FileArchive, Plus, Trash2, X } from "lucide-react";
 import { CATEGORIES, timecode, uid } from "../lib/model";
 import type { Annotation, Issue, Severity, Status } from "../lib/model";
+import type { ShortcutMap } from "../lib/shortcuts";
+import { shortcutLabel, validateShortcuts } from "../lib/shortcuts";
 
 export function IssueEditor({
   issue,
@@ -524,7 +526,13 @@ export function IssueEditor({
   );
 }
 
-export function Help({ onClose }: { onClose: () => void }) {
+export function Help({
+  onClose,
+  shortcuts,
+}: {
+  onClose: () => void;
+  shortcuts: ShortcutMap;
+}) {
   return (
     <div
       className="modal-backdrop"
@@ -548,8 +556,8 @@ export function Help({ onClose }: { onClose: () => void }) {
         <div className="shortcut-list">
           {[
             ["Space", "Play / pause"],
-            ["M", "Capture issue at current time"],
-            ["B", "Add quick bookmark"],
+            [shortcutLabel(shortcuts.capture), "Capture issue at current time"],
+            [shortcutLabel(shortcuts.bookmark), "Add quick bookmark"],
             ["← / →", "Seek by your configured interval"],
             ["Esc", "Close the current dialog"],
             ["⌘/Ctrl + S", "Confirm automatic local save"],
@@ -758,11 +766,13 @@ export function NameDialog({
 export function ConfirmDialog({
   title,
   message,
+  confirmLabel = "Delete issue",
   onCancel,
   onConfirm,
 }: {
   title: string;
   message: string;
+  confirmLabel?: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -792,7 +802,7 @@ export function ConfirmDialog({
             </button>
             <button className="danger-button" onClick={onConfirm}>
               <Trash2 size={15} />
-              Delete issue
+              {confirmLabel}
             </button>
           </div>
         </footer>
@@ -804,16 +814,29 @@ export function ConfirmDialog({
 export function SettingsDialog({
   reviewer,
   interval,
+  accentColor,
+  shortcuts,
   onSave,
   onClose,
 }: {
   reviewer: string;
   interval: number;
-  onSave: (name: string, seconds: number) => void;
+  accentColor: string;
+  shortcuts: ShortcutMap;
+  onSave: (
+    name: string,
+    seconds: number,
+    accentColor: string,
+    shortcuts: ShortcutMap,
+  ) => void;
   onClose: () => void;
 }) {
   const [name, setName] = useState(reviewer);
   const [seconds, setSeconds] = useState(interval);
+  const [color, setColor] = useState(accentColor);
+  const [keys, setKeys] = useState(shortcuts);
+  const [recording, setRecording] = useState<keyof ShortcutMap | null>(null);
+  const shortcutError = validateShortcuts(keys);
   return (
     <div
       className="modal-backdrop"
@@ -826,7 +849,7 @@ export function SettingsDialog({
         aria-labelledby="settings-title"
         onSubmit={(e) => {
           e.preventDefault();
-          onSave(name.trim(), seconds);
+          if (!shortcutError) onSave(name.trim(), seconds, color, keys);
         }}
       >
         <header className="modal-head">
@@ -854,6 +877,48 @@ export function SettingsDialog({
             />
           </label>
           <label className="field full">
+            <span>Accent color</span>
+            <div className="color-setting">
+              <input
+                aria-label="Accent color"
+                type="color"
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+              />
+              <code>{color.toUpperCase()}</code>
+            </div>
+          </label>
+          <fieldset className="shortcut-settings field full">
+            <legend>Keyboard shortcuts</legend>
+            {(["capture", "bookmark"] as const).map((action) => (
+              <div className="shortcut-setting" key={action}>
+                <span>
+                  {action === "capture" ? "Log issue" : "Add bookmark"}
+                </span>
+                <button
+                  type="button"
+                  className="secondary small"
+                  aria-label={`Set ${action === "capture" ? "log issue" : "add bookmark"} shortcut`}
+                  onKeyDown={(e) => {
+                    e.preventDefault();
+                    if (e.key === "Tab") return;
+                    setKeys((current) => ({ ...current, [action]: e.key }));
+                    setRecording(null);
+                  }}
+                  onClick={() => setRecording(action)}
+                >
+                  {recording === action
+                    ? "Press a key…"
+                    : shortcutLabel(keys[action])}
+                </button>
+              </div>
+            ))}
+            {shortcutError && (
+              <small className="field-error">{shortcutError}</small>
+            )}
+            <small>Focus a shortcut button and press the key you want.</small>
+          </fieldset>
+          <label className="field full">
             <span>Arrow-key seek interval</span>
             <select
               value={seconds}
@@ -873,7 +938,11 @@ export function SettingsDialog({
             <button type="button" className="secondary" onClick={onClose}>
               Cancel
             </button>
-            <button className="primary" type="submit">
+            <button
+              className="primary"
+              type="submit"
+              disabled={Boolean(shortcutError)}
+            >
               <Check size={15} />
               Save settings
             </button>
