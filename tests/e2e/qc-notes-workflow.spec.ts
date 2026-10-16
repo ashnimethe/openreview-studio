@@ -45,7 +45,7 @@ test("imports notes, links a local video, seeks safely, persists, and round trip
   await expect(
     page.getByRole("button", { name: "QC Notes Integration E2E" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: /Episode 1/ }).click();
+  await page.locator(".episode-link").filter({ hasText: "Episode 1" }).click();
   await page
     .locator('input[type="file"][accept^="video/mp4"]')
     .setInputFiles(videoPath);
@@ -56,6 +56,38 @@ test("imports notes, links a local video, seeks safely, persists, and round trip
         .evaluate((video: HTMLVideoElement) => video.duration),
     )
     .toBeGreaterThan(14.9);
+  await expect(page.locator("video")).toBeVisible();
+  await expect(page.locator(".right-rail .issue-list")).toBeVisible();
+  await expect(page.locator(".review-main .issue-list")).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("review-sidebar.png") });
+  await page.getByRole("button", { name: "Settings" }).click();
+  const settings = page.getByRole("dialog", { name: "Review settings" });
+  await settings
+    .getByRole("button", { name: "Set log issue shortcut" })
+    .click();
+  await page.keyboard.press("n");
+  await settings
+    .getByRole("button", { name: "Set add bookmark shortcut" })
+    .click();
+  await page.keyboard.press("k");
+  await settings.getByLabel("Accent color").evaluate((element) => {
+    const input = element as HTMLInputElement;
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set?.call(input, "#3478f6");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await settings.getByRole("button", { name: "Save settings" }).click();
+  await expect
+    .poll(() =>
+      page
+        .locator("html")
+        .evaluate((element) =>
+          getComputedStyle(element).getPropertyValue("--accent").trim(),
+        ),
+    )
+    .toBe("#3478f6");
   await page.getByRole("button", { name: "Play or pause" }).click();
   await expect
     .poll(() =>
@@ -75,7 +107,7 @@ test("imports notes, links a local video, seeks safely, persists, and round trip
         .evaluate((video: HTMLVideoElement) => video.readyState),
     )
     .toBeGreaterThanOrEqual(2);
-  await page.getByRole("button", { name: /Log issue/ }).click();
+  await page.keyboard.press("n");
   const newIssueDialog = page.getByRole("dialog", { name: "Log an issue" });
   await expect(newIssueDialog.locator(".annotate-box img")).toBeVisible();
   await newIssueDialog.getByRole("button", { name: "Box" }).click();
@@ -96,6 +128,10 @@ test("imports notes, links a local video, seeks safely, persists, and round trip
       .locator(".issue-row .issue-body")
       .filter({ hasText: "Captured frame annotation" }),
   ).toBeVisible();
+  await page.keyboard.press("k");
+  await expect(
+    page.locator(".issue-row .issue-body").filter({ hasText: "Bookmark" }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "Relink source" }).click();
   await page
@@ -108,6 +144,7 @@ test("imports notes, links a local video, seeks safely, persists, and round trip
         .evaluate((video: HTMLVideoElement) => video.duration),
     )
     .toBeGreaterThan(15.9);
+  await expect(page.locator("video")).toBeVisible();
   await expect(
     page
       .getByRole("status")
@@ -177,7 +214,7 @@ test("imports notes, links a local video, seeks safely, persists, and round trip
     page.getByRole("heading", { name: "Your projects" }),
   ).toBeVisible();
   await page.getByRole("button", { name: /QC Notes Integration E2E/ }).click();
-  await page.getByRole("button", { name: /Episode 1/ }).click();
+  await page.locator(".episode-link").filter({ hasText: "Episode 1" }).click();
   const reloadedIssue = page
     .locator(".issue-row .issue-body")
     .filter({ hasText: "Character position changes unexpectedly" });
@@ -241,7 +278,10 @@ test("imports notes, links a local video, seeks safely, persists, and round trip
   await expect(
     cleanPage.getByRole("button", { name: "QC Notes Integration E2E" }),
   ).toBeVisible();
-  await cleanPage.getByRole("button", { name: /Episode 1/ }).click();
+  await cleanPage
+    .locator(".episode-link")
+    .filter({ hasText: "Episode 1" })
+    .click();
   await cleanPage
     .locator('input[type="file"][accept^="video/mp4"]')
     .setInputFiles(changedVideoPath);
@@ -324,6 +364,26 @@ test("imports notes, links a local video, seeks safely, persists, and round trip
   expect(
     standaloneHtml.match(/data:image\/jpeg;base64,/g)?.length,
   ).toBeGreaterThanOrEqual(2);
+  await page.getByRole("button", { name: "Delete episode Episode 1" }).click();
+  const deleteEpisodeDialog = page.getByRole("alertdialog");
+  await deleteEpisodeDialog
+    .getByRole("button", { name: "Delete episode" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Choose an episode to review" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Library" }).click();
+  const projectRow = page
+    .locator(".project-row")
+    .filter({ hasText: "QC Notes Integration E2E" });
+  await projectRow.getByRole("button", { name: "Delete" }).click();
+  const deleteProjectDialog = page.getByRole("alertdialog");
+  await deleteProjectDialog
+    .getByRole("button", { name: "Delete project" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Start a review project" }),
+  ).toBeVisible();
   expect(pageErrors).toEqual([]);
   expect(cleanErrors).toEqual([]);
   expect(externalRequests).toEqual([]);
