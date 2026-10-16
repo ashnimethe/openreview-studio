@@ -13,7 +13,8 @@
   --border: #26262a;
   --muted: #a1a1aa;
   --faint: #707078;
-  --red: #ff5148;
+  --accent: #ff5148;
+  --red: var(--accent);
   --green: #61d39a;
   --amber: #f3bd56;
   --blue: #74a9ff;
@@ -40,7 +41,7 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid #ff7168;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 button:disabled {
@@ -404,7 +405,7 @@ button:disabled {
   height: calc(100vh - 56px);
   min-height: 640px;
   display: grid;
-  grid-template-columns: 210px minmax(460px, 1fr) 238px;
+  grid-template-columns: 190px minmax(500px, 1fr) 330px;
   max-width: 1800px;
   margin: 0 auto;
 }
@@ -420,7 +421,7 @@ button:disabled {
 .right-rail {
   border-left: 1px solid #202023;
   border-right: 0;
-  padding: 20px 14px;
+  padding: 14px 12px;
 }
 .rail-project {
   font-size: 13px;
@@ -821,6 +822,33 @@ button:disabled {
 .issue-list {
   padding-bottom: 30px;
 }
+.notes-slot { min-width: 0; }
+.right-rail .episode-observations { padding: 10px; margin: 0 0 12px; }
+.right-rail .issue-head { display: block; margin: 0 0 10px; }
+.right-rail .issue-head h2 { font-size: 15px; margin-bottom: 8px; }
+.right-rail .issue-jump { display: flex; gap: 5px; }
+.right-rail .issue-jump .small { padding: 0 7px; font-size: 10px; }
+.right-rail .issue-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.right-rail .issue-tools .filter-select { min-width: 0; }
+.right-rail .issue-search { grid-column: 1 / -1; width: 100%; }
+.right-rail .issue-list { max-height: min(48vh, 480px); overflow: auto; }
+.right-rail .issue-row { padding: 8px 3px; }
+.right-rail .issue-body { gap: 6px; }
+.right-rail .issue-row-bottom { flex-wrap: wrap; font-size: 9px; }
+.right-rail .issue-description { display: none; }
+.episode-row { display: flex; align-items: center; }
+.episode-row .episode-link { flex: 1; min-width: 0; }
+.episode-delete { border: 0; background: transparent; color: var(--faint); border-radius: 4px; width: 25px; height: 28px; opacity: 0; }
+.episode-row:hover .episode-delete, .episode-delete:focus-visible { opacity: 1; }
+.episode-delete:hover, .danger-text { color: #fa736c; }
+.color-setting { display: flex; align-items: center; gap: 10px; }
+.color-setting input { width: 44px; height: 34px; border: 0; padding: 2px; background: transparent; }
+.color-setting code { color: var(--muted); font-size: 12px; }
+.shortcut-settings { border: 1px solid var(--border); border-radius: 6px; padding: 10px; }
+.shortcut-settings legend { color: var(--muted); padding: 0 5px; }
+.shortcut-setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; }
+.shortcut-settings > small { display: block; color: var(--faint); margin-top: 6px; }
+.field-error { color: #ff8c85 !important; }
 .issue-row {
   min-height: 58px;
   border-bottom: 1px solid #1d1d20;
@@ -863,6 +891,8 @@ button:disabled {
   justify-content: space-between;
 }
 .issue-row-top b {
+  flex: 1;
+  min-width: 0;
   font-weight: 600;
   font-size: 12px;
   overflow: hidden;
@@ -1312,9 +1342,7 @@ button:disabled {
   .work-layout {
     grid-template-columns: 180px minmax(420px, 1fr);
   }
-  .right-rail {
-    display: none;
-  }
+  .right-rail { display: block; grid-column: 2; max-height: 46vh; border: 1px solid #202023; }
   .review-main {
     padding: 20px;
   }
@@ -1347,12 +1375,15 @@ button:disabled {
   }
   .work-layout {
     display: flex;
+    flex-direction: column;
     height: auto;
     min-height: calc(100vh - 56px);
   }
   .left-rail {
     display: none;
   }
+  .right-rail { display: block; max-height: none; width: 100%; border: 1px solid #202023; }
+  .right-rail .issue-list { max-height: 40vh; }
   .review-main {
     width: 100%;
     padding: 16px 12px;
@@ -1411,7 +1442,7 @@ button:disabled {
   .issue-row-bottom {
     max-width: calc(100vw - 80px);
   }
-  .issue-description {
+  .review-main .issue-description {
     display: none;
   }
   .modal-backdrop {

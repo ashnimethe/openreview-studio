@@ -46,6 +46,13 @@ import { loadProjects, saveProjects } from "./lib/store";
 import { exportPackage, importPackage, reportText } from "./lib/packages";
 import { seekMediaTime } from "./lib/media";
 import { renderAnnotatedFrame } from "./lib/annotations";
+import { createPortal } from "react-dom";
+import {
+  DEFAULT_SHORTCUTS,
+  normalizeShortcut,
+  shortcutLabel,
+} from "./lib/shortcuts";
+import type { ShortcutMap } from "./lib/shortcuts";
 import "./App.css";
 function readPreference(key: string, fallback: string) {
   try {
@@ -117,13 +124,35 @@ export default function App() {
     [editingEpisode, setEditingEpisode] = useState(""),
     [showArchived, setShowArchived] = useState(false),
     [confirmDelete, setConfirmDelete] = useState(false),
+    [deleteTarget, setDeleteTarget] = useState<{
+      type: "project" | "episode";
+      id: string;
+      name: string;
+    } | null>(null),
     [settingsOpen, setSettingsOpen] = useState(false),
+    [accentColor, setAccentColor] = useState(() =>
+      readPreference("openreview-accent-color", "#ff5148"),
+    ),
+    [shortcuts, setShortcuts] = useState<ShortcutMap>(() => {
+      try {
+        return {
+          ...DEFAULT_SHORTCUTS,
+          ...JSON.parse(readPreference("openreview-shortcuts", "{}")),
+        };
+      } catch {
+        return DEFAULT_SHORTCUTS;
+      }
+    }),
     [seekInterval, setSeekInterval] = useState(() =>
       Number(readPreference("openreview-seek-interval", "5")),
     ),
     [reviewerName, setReviewerName] = useState(() =>
       readPreference("openreview-reviewer", ""),
     );
+  const [notesSlot, setNotesSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    document.documentElement.style.setProperty("--accent", accentColor);
+  }, [accentColor]);
   const video = useRef<HTMLVideoElement>(null),
     canvas = useRef<HTMLCanvasElement>(null),
     fileInput = useRef<HTMLInputElement>(null),
@@ -708,7 +737,12 @@ export default function App() {
         setNotice("Review changes save automatically in this browser.");
         return;
       }
-      if (e.key.toLowerCase() === "m") {
+      if (
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        normalizeShortcut(e.key) === shortcuts.capture
+      ) {
         e.preventDefault();
         capture();
       } else if (e.code === "Space" && video.current) {
@@ -725,7 +759,20 @@ export default function App() {
         );
       } else if (e.key === "ArrowRight" && video.current) {
         video.current.currentTime += seekInterval;
-      } else if (e.key.toLowerCase() === "b" && ep && activeVersion) {
+      } else if (
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        normalizeShortcut(e.key) === shortcuts.bookmark &&
+        ep &&
+        activeVersion
+      ) {
+        if (!file) {
+          setNotice(
+            "Relink this episode's local video before adding a bookmark.",
+          );
+          return;
+        }
         const i: Issue = {
           id: uid(),
           title: "Bookmark",
@@ -749,6 +796,7 @@ export default function App() {
   }, [
     ep,
     activeVersion,
+    file,
     activeId,
     episodeId,
     capture,
@@ -758,7 +806,215 @@ export default function App() {
     showHelp,
     showExport,
     seekInterval,
+    shortcuts,
   ]);
+  const notesPanel = ep ? (
+    <>
+      {!!ep.observations?.length && (
+        <section
+          className="episode-observations"
+          aria-label="Episode-wide observations"
+        >
+          <div className="episode-observations-head">
+            <b>Episode-wide observations</b>
+            <span>{ep.observations.length}</span>
+          </div>
+          {ep.observations.map((observation) => (
+            <article key={observation.id}>
+              <p>{observation.cleanedText}</p>
+              <small>Source note: {observation.sourceText}</small>
+            </article>
+          ))}
+        </section>
+      )}
+      <div className="issue-head">
+        <div>
+          <p className="eyebrow">REVIEW NOTES</p>
+          <h2>
+            Issues <span>{filtered.length}</span>
+          </h2>
+          <div className="issue-jump">
+            <button
+              className="secondary small"
+              disabled={!previousIssue}
+              onClick={() =>
+                previousIssue && void openIssueAtTime(previousIssue)
+              }
+            >
+              <ArrowLeft size={13} /> Previous issue
+            </button>
+            <button
+              className="secondary small"
+              disabled={!nextIssue}
+              onClick={() => nextIssue && void openIssueAtTime(nextIssue)}
+            >
+              Next issue <ArrowRight size={13} />
+            </button>
+          </div>
+        </div>
+        <div className="issue-tools">
+          <label className="filter-select">
+            <SlidersHorizontal size={14} />
+            <select
+              aria-label="Filter issues"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            >
+              <option>All issues</option>
+              {statuses.map((x) => (
+                <option key={x}>{x}</option>
+              ))}
+              {sev.map((x) => (
+                <option key={x}>{x}</option>
+              ))}
+            </select>
+            <ChevronDown size={13} />
+          </label>
+          <label className="filter-select version-filter">
+            <select
+              aria-label="Filter by version"
+              value={versionFilter}
+              onChange={(e) => setVersionFilter(e.target.value)}
+            >
+              <option value="All versions">All versions</option>
+              {ep.versions.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={13} />
+          </label>
+          <label className="filter-select sort-filter">
+            <select
+              aria-label="Sort issues"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="time">Timecode</option>
+              <option value="severity">Severity</option>
+              <option value="created">Newest</option>
+            </select>
+            <ChevronDown size={13} />
+          </label>
+          <div className="searchbox issue-search">
+            <Search size={14} />
+            <input
+              aria-label="Search issues"
+              placeholder="Find issue"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+      <div className="issue-list">
+        {filtered.length === 0 ? (
+          <div className="issue-empty">
+            <div className="empty-icon small-icon">
+              <Check />
+            </div>
+            <h3>
+              {ep.issues.length
+                ? "No issues match these filters"
+                : "Nothing flagged yet"}
+            </h3>
+            <p>
+              {ep.issues.length
+                ? "Adjust your search or filter."
+                : "Press M during playback or log an issue to capture a frame."}
+            </p>
+            {!ep.issues.length && (
+              <button
+                className="secondary small"
+                onClick={capture}
+                disabled={!activeVersion || !file}
+              >
+                <Plus size={14} /> Log first issue
+              </button>
+            )}
+          </div>
+        ) : (
+          filtered.map((i) => (
+            <article
+              className={`issue-row ${selectedIssueId === i.id ? "current" : ""}`}
+              key={i.id}
+            >
+              <button
+                className="issue-body"
+                onClick={() => void openIssueAtTime(i)}
+              >
+                <span className={`sev-dot ${i.severity.toLowerCase()}`} />
+                <span className="issue-data">
+                  <span className="issue-row-top">
+                    <b>{i.title}</b>
+                    <time>{i.sourceTimestamp || timecode(i.start)}</time>
+                  </span>
+                  <span className="issue-row-bottom">
+                    <span className="version-tag">
+                      {ep.versions.find((v) => v.id === i.versionId)?.label ||
+                        "Source missing"}
+                    </span>
+                    <i>·</i>
+                    <span>{i.category}</span>
+                    <i>·</i>
+                    <span
+                      className={`severity-label ${i.severity.toLowerCase()}`}
+                    >
+                      {i.severity}
+                    </span>
+                    <i>·</i>
+                    <span
+                      className={`status-label ${i.status.toLowerCase().replaceAll(" ", "-")}`}
+                    >
+                      {i.status}
+                    </span>
+                    {i.description && (
+                      <>
+                        <i>·</i>
+                        <span className="issue-description">
+                          {i.description}
+                        </span>
+                      </>
+                    )}
+                  </span>
+                </span>
+                <ArrowRight size={15} />
+              </button>
+              <button
+                className="status-cycle"
+                title="Change status"
+                onClick={() =>
+                  updateEpisode((e) => ({
+                    ...e,
+                    issues: e.issues.map((x) =>
+                      x.id === i.id
+                        ? {
+                            ...x,
+                            status:
+                              statuses[
+                                (statuses.indexOf(x.status) + 1) %
+                                  statuses.length
+                              ],
+                            updatedAt: new Date().toISOString(),
+                          }
+                        : x,
+                    ),
+                  }))
+                }
+              >
+                {i.status === "Resolved" ? (
+                  <Check size={13} />
+                ) : (
+                  <MoreHorizontal size={14} />
+                )}
+              </button>
+            </article>
+          ))
+        )}
+      </div>
+    </>
+  ) : null;
   if (!ready)
     return (
       <main className="loading">
@@ -912,6 +1168,20 @@ export default function App() {
                   >
                     {p.archived ? "Restore" : "Archive"}
                   </button>
+                  <button
+                    className="project-action danger-text"
+                    title="Delete project permanently"
+                    onClick={() => {
+                      setDeleteTarget({
+                        type: "project",
+                        id: p.id,
+                        name: p.name,
+                      });
+                      setConfirmDelete(true);
+                    }}
+                  >
+                    Delete
+                  </button>
                 </div>
               ))}
             </div>
@@ -936,7 +1206,9 @@ export default function App() {
             </button>
           </div>
         )}
-        {showHelp && <Help onClose={() => setShowHelp(false)} />}
+        {showHelp && (
+          <Help onClose={() => setShowHelp(false)} shortcuts={shortcuts} />
+        )}
         {showQcNotes && (
           <QcNotesStudio
             projects={projects}
@@ -949,14 +1221,38 @@ export default function App() {
           <SettingsDialog
             reviewer={reviewerName}
             interval={seekInterval}
-            onSave={(name, interval) => {
+            accentColor={accentColor}
+            shortcuts={shortcuts}
+            onSave={(name, interval, color, keyMap) => {
               setReviewerName(name);
               setSeekInterval(interval);
+              setAccentColor(color);
+              setShortcuts(keyMap);
               writePreference("openreview-reviewer", name);
               writePreference("openreview-seek-interval", String(interval));
+              writePreference("openreview-accent-color", color);
+              writePreference("openreview-shortcuts", JSON.stringify(keyMap));
               setSettingsOpen(false);
             }}
             onClose={() => setSettingsOpen(false)}
+          />
+        )}
+        {confirmDelete && deleteTarget?.type === "project" && (
+          <ConfirmDialog
+            title="Delete project?"
+            message={`“${deleteTarget.name}” and all its episodes and review notes will be permanently removed from this browser.`}
+            confirmLabel="Delete project"
+            onCancel={() => {
+              setConfirmDelete(false);
+              setDeleteTarget(null);
+            }}
+            onConfirm={() => {
+              persistProjects((current) =>
+                current.filter((project) => project.id !== deleteTarget.id),
+              );
+              setConfirmDelete(false);
+              setDeleteTarget(null);
+            }}
           />
         )}
         {createType && (
@@ -1044,6 +1340,14 @@ export default function App() {
           >
             <HelpCircle />
           </button>
+          <button
+            className="icon-btn"
+            title="Settings"
+            aria-label="Settings"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Settings />
+          </button>
         </div>
       </header>
       <div className="work-layout">
@@ -1057,22 +1361,34 @@ export default function App() {
             </button>
           </div>
           {active.episodes.map((e) => (
-            <button
-              key={e.id}
-              className={`episode-link ${e.id === episodeId ? "selected" : ""}`}
-              onClick={() => {
-                setEpisodeId(e.id);
-                setFile(null);
-                setObjectUrl("");
-                setRelinkVersionId("");
-              }}
-            >
-              <Film size={15} />
-              <span>{e.name}</span>
-              <small>
-                {e.issues.filter((i) => i.status !== "Resolved").length}
-              </small>
-            </button>
+            <div className="episode-row" key={e.id}>
+              <button
+                className={`episode-link ${e.id === episodeId ? "selected" : ""}`}
+                onClick={() => {
+                  setEpisodeId(e.id);
+                  setFile(null);
+                  setObjectUrl("");
+                  setRelinkVersionId("");
+                }}
+              >
+                <Film size={15} />
+                <span>{e.name}</span>
+                <small>
+                  {e.issues.filter((i) => i.status !== "Resolved").length}
+                </small>
+              </button>
+              <button
+                className="episode-delete"
+                aria-label={`Delete episode ${e.name}`}
+                title={`Delete ${e.name}`}
+                onClick={() => {
+                  setDeleteTarget({ type: "episode", id: e.id, name: e.name });
+                  setConfirmDelete(true);
+                }}
+              >
+                ×
+              </button>
+            </div>
           ))}
           {!active.episodes.length && (
             <p className="rail-empty">No episodes yet</p>
@@ -1181,8 +1497,10 @@ export default function App() {
                   className="primary small"
                   onClick={capture}
                   disabled={!activeVersion || !file}
+                  title={`Log issue (${shortcutLabel(shortcuts.capture)})`}
                 >
-                  <Plus size={16} /> Log issue <kbd>M</kbd>
+                  <Plus size={16} /> Log issue{" "}
+                  <kbd>{shortcutLabel(shortcuts.capture)}</kbd>
                 </button>
               </div>
             </div>
@@ -1190,6 +1508,7 @@ export default function App() {
               {objectUrl ? (
                 <>
                   <video
+                    key={objectUrl}
                     ref={video}
                     src={objectUrl}
                     onTimeUpdate={() => setNow(video.current?.currentTime || 0)}
@@ -1308,7 +1627,9 @@ export default function App() {
               <div className="transport-spacer" />
               <button
                 className="transport-btn"
-                title="Bookmark (B)"
+                title={`Bookmark (${shortcutLabel(shortcuts.bookmark)})`}
+                aria-label={`Bookmark (${shortcutLabel(shortcuts.bookmark)})`}
+                disabled={!activeVersion || !file}
                 onClick={() => {
                   if (ep && activeVersion && file) {
                     const i: Issue = {
@@ -1327,6 +1648,7 @@ export default function App() {
                       updatedAt: new Date().toISOString(),
                     };
                     updateEpisode((e) => ({ ...e, issues: [...e.issues, i] }));
+                    setNotice("Bookmark saved.");
                   }
                 }}
               >
@@ -1415,212 +1737,11 @@ export default function App() {
                 <span>{timecode(duration)}</span>
               </div>
             </div>
-            {!!ep.observations?.length && (
-              <section
-                className="episode-observations"
-                aria-label="Episode-wide observations"
-              >
-                <div className="episode-observations-head">
-                  <b>Episode-wide observations</b>
-                  <span>{ep.observations.length}</span>
-                </div>
-                {ep.observations.map((observation) => (
-                  <article key={observation.id}>
-                    <p>{observation.cleanedText}</p>
-                    <small>Source note: {observation.sourceText}</small>
-                  </article>
-                ))}
-              </section>
-            )}
-            <div className="issue-head">
-              <div>
-                <p className="eyebrow">REVIEW NOTES</p>
-                <h2>
-                  Issues <span>{filtered.length}</span>
-                </h2>
-                <div className="issue-jump">
-                  <button
-                    className="secondary small"
-                    disabled={!previousIssue}
-                    onClick={() =>
-                      previousIssue && void openIssueAtTime(previousIssue)
-                    }
-                  >
-                    <ArrowLeft size={13} /> Previous issue
-                  </button>
-                  <button
-                    className="secondary small"
-                    disabled={!nextIssue}
-                    onClick={() => nextIssue && void openIssueAtTime(nextIssue)}
-                  >
-                    Next issue <ArrowRight size={13} />
-                  </button>
-                </div>
-              </div>
-              <div className="issue-tools">
-                <label className="filter-select">
-                  <SlidersHorizontal size={14} />
-                  <select
-                    aria-label="Filter issues"
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
-                  >
-                    <option>All issues</option>
-                    {statuses.map((x) => (
-                      <option key={x}>{x}</option>
-                    ))}
-                    {sev.map((x) => (
-                      <option key={x}>{x}</option>
-                    ))}
-                  </select>
-                  <ChevronDown size={13} />
-                </label>
-                <label className="filter-select version-filter">
-                  <select
-                    aria-label="Filter by version"
-                    value={versionFilter}
-                    onChange={(e) => setVersionFilter(e.target.value)}
-                  >
-                    <option value="All versions">All versions</option>
-                    {ep.versions.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.label}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown size={13} />
-                </label>
-                <label className="filter-select sort-filter">
-                  <select
-                    aria-label="Sort issues"
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value)}
-                  >
-                    <option value="time">Timecode</option>
-                    <option value="severity">Severity</option>
-                    <option value="created">Newest</option>
-                  </select>
-                  <ChevronDown size={13} />
-                </label>
-                <div className="searchbox issue-search">
-                  <Search size={14} />
-                  <input
-                    aria-label="Search issues"
-                    placeholder="Find issue"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="issue-list">
-              {filtered.length === 0 ? (
-                <div className="issue-empty">
-                  <div className="empty-icon small-icon">
-                    <Check />
-                  </div>
-                  <h3>
-                    {ep.issues.length
-                      ? "No issues match these filters"
-                      : "Nothing flagged yet"}
-                  </h3>
-                  <p>
-                    {ep.issues.length
-                      ? "Adjust your search or filter."
-                      : "Press M during playback or log an issue to capture a frame."}
-                  </p>
-                  {!ep.issues.length && (
-                    <button
-                      className="secondary small"
-                      onClick={capture}
-                      disabled={!activeVersion || !file}
-                    >
-                      <Plus size={14} /> Log first issue
-                    </button>
-                  )}
-                </div>
-              ) : (
-                filtered.map((i) => (
-                  <article
-                    className={`issue-row ${selectedIssueId === i.id ? "current" : ""}`}
-                    key={i.id}
-                  >
-                    <button
-                      className="issue-body"
-                      onClick={() => void openIssueAtTime(i)}
-                    >
-                      <span className={`sev-dot ${i.severity.toLowerCase()}`} />
-                      <span className="issue-data">
-                        <span className="issue-row-top">
-                          <b>{i.title}</b>
-                          <time>{i.sourceTimestamp || timecode(i.start)}</time>
-                        </span>
-                        <span className="issue-row-bottom">
-                          <span className="version-tag">
-                            {ep.versions.find((v) => v.id === i.versionId)
-                              ?.label || "Source missing"}
-                          </span>
-                          <i>·</i>
-                          <span>{i.category}</span>
-                          <i>·</i>
-                          <span
-                            className={`severity-label ${i.severity.toLowerCase()}`}
-                          >
-                            {i.severity}
-                          </span>
-                          <i>·</i>
-                          <span
-                            className={`status-label ${i.status.toLowerCase().replaceAll(" ", "-")}`}
-                          >
-                            {i.status}
-                          </span>
-                          {i.description && (
-                            <>
-                              <i>·</i>
-                              <span className="issue-description">
-                                {i.description}
-                              </span>
-                            </>
-                          )}
-                        </span>
-                      </span>
-                      <ArrowRight size={15} />
-                    </button>
-                    <button
-                      className="status-cycle"
-                      title="Change status"
-                      onClick={() =>
-                        updateEpisode((e) => ({
-                          ...e,
-                          issues: e.issues.map((x) =>
-                            x.id === i.id
-                              ? {
-                                  ...x,
-                                  status:
-                                    statuses[
-                                      (statuses.indexOf(x.status) + 1) %
-                                        statuses.length
-                                    ],
-                                  updatedAt: new Date().toISOString(),
-                                }
-                              : x,
-                          ),
-                        }))
-                      }
-                    >
-                      {i.status === "Resolved" ? (
-                        <Check size={13} />
-                      ) : (
-                        <MoreHorizontal size={14} />
-                      )}
-                    </button>
-                  </article>
-                ))
-              )}
-            </div>
           </section>
         )}
         <aside className="right-rail">
+          <div className="notes-slot" ref={setNotesSlot} />
+          {notesSlot && notesPanel && createPortal(notesPanel, notesSlot)}
           <div className="rail-heading">
             <span>VERSION HISTORY</span>
             <button
@@ -1702,21 +1823,59 @@ export default function App() {
       )}
       {confirmDelete && (
         <ConfirmDialog
-          title="Delete this issue?"
-          message="This removes the review note and its captured frame from this project."
-          onCancel={() => setConfirmDelete(false)}
+          title={
+            deleteTarget ? `Delete ${deleteTarget.type}?` : "Delete this issue?"
+          }
+          message={
+            deleteTarget
+              ? `“${deleteTarget.name}” and its review notes will be permanently removed from this browser.`
+              : "This removes the review note and its captured frame from this project."
+          }
+          confirmLabel={
+            deleteTarget ? `Delete ${deleteTarget.type}` : "Delete issue"
+          }
+          onCancel={() => {
+            setConfirmDelete(false);
+            setDeleteTarget(null);
+          }}
           onConfirm={() => {
-            if (issue)
+            if (deleteTarget?.type === "project") {
+              persistProjects((current) =>
+                current.filter((project) => project.id !== deleteTarget.id),
+              );
+              if (activeId === deleteTarget.id) {
+                setActiveId("");
+                setEpisodeId("");
+                setFile(null);
+                setObjectUrl("");
+              }
+            } else if (deleteTarget?.type === "episode") {
+              updateProject((project) => ({
+                ...project,
+                episodes: project.episodes.filter(
+                  (episode) => episode.id !== deleteTarget.id,
+                ),
+              }));
+              if (episodeId === deleteTarget.id) {
+                setEpisodeId("");
+                setFile(null);
+                setObjectUrl("");
+                setRelinkVersionId("");
+              }
+            } else if (issue)
               updateEpisode((e) => ({
                 ...e,
                 issues: e.issues.filter((x) => x.id !== issue.id),
               }));
             setConfirmDelete(false);
+            setDeleteTarget(null);
             setIssue(null);
           }}
         />
       )}
-      {showHelp && <Help onClose={() => setShowHelp(false)} />}
+      {showHelp && (
+        <Help onClose={() => setShowHelp(false)} shortcuts={shortcuts} />
+      )}
       {showQcNotes && (
         <QcNotesStudio
           projects={projects}
@@ -1742,11 +1901,17 @@ export default function App() {
         <SettingsDialog
           reviewer={reviewerName}
           interval={seekInterval}
-          onSave={(name, interval) => {
+          accentColor={accentColor}
+          shortcuts={shortcuts}
+          onSave={(name, interval, color, keyMap) => {
             setReviewerName(name);
             setSeekInterval(interval);
+            setAccentColor(color);
+            setShortcuts(keyMap);
             writePreference("openreview-reviewer", name);
             writePreference("openreview-seek-interval", String(interval));
+            writePreference("openreview-accent-color", color);
+            writePreference("openreview-shortcuts", JSON.stringify(keyMap));
             setSettingsOpen(false);
           }}
           onClose={() => setSettingsOpen(false)}
